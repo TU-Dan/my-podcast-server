@@ -47,13 +47,15 @@ jobs:
 
       - name: Generate RSS Feed
         run: |
-          # 简单的 Python 脚本生成 RSS
           python3 -c '
           import os, glob, urllib.parse, datetime, email.utils
 
           # 配置
           REPO_NAME = "${{ github.repository }}" # 例如 "yourname/podcast-server"
-          BASE_URL = f"https://{REPO_NAME.split("/")[0]}.github.io/{REPO_NAME.split("/")[1]}/downloads"
+          # 使用单引号避免 f-string 冲突
+          user_name = REPO_NAME.split("/")[0]
+          repo_name = REPO_NAME.split("/")[1]
+          BASE_URL = f"https://{user_name}.github.io/{repo_name}/downloads"
           
           rss_template = """<?xml version="1.0" encoding="UTF-8"?>
           <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
@@ -72,7 +74,7 @@ jobs:
           # 扫描 downloads 文件夹下的 mp3
           for file_path in sorted(glob.glob("downloads/*.mp3"), key=os.path.getmtime, reverse=True):
               filename = os.path.basename(file_path)
-              # URL 编码文件名 (处理中文)
+              # URL 编码文件名
               safe_filename = urllib.parse.quote(filename)
               file_url = f"{BASE_URL}/{safe_filename}"
               file_size = os.path.getsize(file_path)
@@ -86,7 +88,8 @@ jobs:
                 <pubDate>{pub_date}</pubDate>
               </item>
               """
-              
+          
+          # 只有当 items 不为空时才写入，避免生成空 RSS (可选)
           with open("feed.xml", "w", encoding="utf-8") as f:
               f.write(rss_template.replace("{items}", items))
           '
