@@ -34,17 +34,30 @@ jobs:
         env:
           VIDEO_URL: ${{ github.event.client_payload.video_url || github.event.inputs.video_url }}
         run: |
-          echo "正在处理链接: $VIDEO_URL"
+          echo "原始链接: $VIDEO_URL"
           mkdir -p downloads
           
-          # ✅ 核心修改：伪装成 Mac 电脑上的 Chrome 浏览器
+          # 1. 专门处理 b23.tv 短链接解析
+          # 使用 curl 模拟浏览器跳转，获取真实地址
+          if [[ "$VIDEO_URL" == *"b23.tv"* ]]; then
+            echo "检测到短链接，正在解析..."
+            REAL_URL=$(curl -Ls -o /dev/null -w %{url_effective} \
+              -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+              "$VIDEO_URL")
+            echo "解析结果: $REAL_URL"
+          else
+            REAL_URL="$VIDEO_URL"
+          fi
+          
+          # 2. 开始下载 (针对 B站 增加 buvid3 伪造 Cookie)
           yt-dlp -f 'bestaudio/best' \
             --user-agent "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-            --referer "https://www.bilibili.com" \
+            --add-header "Referer:https://www.bilibili.com" \
+            --add-header "Cookie:buvid3=infoc" \
             --extract-audio --audio-format mp3 --audio-quality 192K \
             --max-filesize 100M \
             -o "downloads/%(title)s.%(ext)s" \
-            "$VIDEO_URL"
+            "$REAL_URL"
 
       - name: Generate RSS Feed
         run: |
