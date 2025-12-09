@@ -1,0 +1,100 @@
+name: Video to Podcast
+
+# 触发方式：通过 Repository Dispatch (API触发)
+on:
+  repository_dispatch:
+    types: [convert-video]
+  workflow_dispatch: # 允许手动点击按钮测试
+    inputs:
+      video_url:
+        description: '视频链接'
+        required: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 允许写入文件
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get install -y ffmpeg
+          pip install yt-dlp
+
+      - name: Download and Convert Video
+        env:
+          # 获取传入的 URL (如果是 API 触发则用 client_payload，如果是手动触发则用 inputs)
+          VIDEO_URL: ${{ github.event.client_payload.video_url || github.event.inputs.video_url }}
+        run: |
+          echo "正在处理链接: $VIDEO_URL"
+          mkdir -p downloads
+          
+          # 下载音频，文件名为 "标题.mp3"，限制大小不超过 100MB (防止 GitHub 爆炸)
+          yt-dlp -f 'bestaudio/best' \
+            --extract-audio --audio-format mp3 --audio-quality 192K \
+            --max-filesize 100M \
+            -o "downloads/%(title)s.%(ext)s" \
+            "$VIDEO_URL"
+
+      - name: Generate RSS Feed
+        run: |
+          # 简单的 Python 脚本生成 RSS
+          python3 -c '
+          import os, glob, urllib.parse, datetime, email.utils
+
+          # 配置
+          REPO_NAME = "${{ github.repository }}" # 例如 "yourname/podcast-server"
+          BASE_URL = f"https://{REPO_NAME.split("/")[0]}.github.io/{REPO_NAME.split("/")[1]}/downloads"
+          
+          rss_template = """<?xml version="1.0" encoding="UTF-8"?>
+          <rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+          <channel>
+            <title>My Cloud Podcast</title>
+            <description>我的云端稍后听</description>
+            <link>https://github.com/{REPO_NAME}</link>
+            <language>zh-cn</language>
+            
+            {items}
+            
+          </channel>
+          </rss>"""
+          
+          items = ""
+          # 扫描 downloads 文件夹下的 mp3
+          for file_path in sorted(glob.glob("downloads/*.mp3"), key=os.path.getmtime, reverse=True):
+              filename = os.path.basename(file_path)
+              # URL 编码文件名 (处理中文)
+              safe_filename = urllib.parse.quote(filename)
+              file_url = f"{BASE_URL}/{safe_filename}"
+              file_size = os.path.getsize(file_path)
+              pub_date = email.utils.formatdate(os.path.getmtime(file_path), usegmt=True)
+              
+              items += f"""
+              <item>
+                <title>{filename.replace(".mp3", "")}</title>
+                <enclosure url="{file_url}" length="{file_size}" type="audio/mpeg"/>
+                <guid>{file_url}</guid>
+                <pubDate>{pub_date}</pubDate>
+              </item>
+              """
+              
+          with open("feed.xml", "w", encoding="utf-8") as f:
+              f.write(rss_template.replace("{items}", items))
+          '
+
+      - name: Commit and Push
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add downloads/*.mp3 feed.xml
+          git commit -m "Update Podcast Feed" || echo "No changes to commit"
+          git push
