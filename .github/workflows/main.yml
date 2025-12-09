@@ -23,7 +23,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: '3.10' # ✅ 升级到 3.10 消除警告
 
       - name: Install dependencies
         run: |
@@ -32,14 +32,15 @@ jobs:
 
       - name: Download and Convert Video
         env:
-          # 获取传入的 URL (如果是 API 触发则用 client_payload，如果是手动触发则用 inputs)
           VIDEO_URL: ${{ github.event.client_payload.video_url || github.event.inputs.video_url }}
         run: |
           echo "正在处理链接: $VIDEO_URL"
           mkdir -p downloads
           
-          # 下载音频，文件名为 "标题.mp3"，限制大小不超过 100MB (防止 GitHub 爆炸)
+          # ✅ 核心修改：伪装成 Mac 电脑上的 Chrome 浏览器
           yt-dlp -f 'bestaudio/best' \
+            --user-agent "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+            --referer "https://www.bilibili.com" \
             --extract-audio --audio-format mp3 --audio-quality 192K \
             --max-filesize 100M \
             -o "downloads/%(title)s.%(ext)s" \
